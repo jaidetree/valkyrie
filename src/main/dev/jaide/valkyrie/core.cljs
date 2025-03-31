@@ -4,29 +4,41 @@
    [clojure.pprint :refer [pprint]]))
 
 (defn create
-  [& {:keys [validate exhaustive] :as opts
-      :or {validate :true
-           exhaustive false}}]
-  {:state       ::unset
-   :transitions {}
-   :validators  {:states {}
-                 :actions {}}
-   :opts        opts})
+  [id & {:keys [validate exhaustive atom-f] :as opts
+         :or {validate true
+              exhaustive false
+              atom-f atom}}]
+  (atom-f
+   {::fsm        id
+    :state       ::unset
+    :transitions {}
+    :validators  {:states {}
+                  :actions {}}
+    :opts        opts}))
 
-(defn def-state
-  [fsm id & [context-validator-map]]
+(defn fsm?
+  [fsm-ref]
+  (contains? @fsm-ref ::fsm))
+
+(defn assert-fsm
+  [fsm-ref]
+  (assert (fsm? fsm-ref) "Invalid FSM, missing ::fsm id"))
+
+(defn register-state
+  [fsm-ref id & [context-validator-map]]
+  (assert-fsm fsm-ref)
   (assert (keyword? id) "State id value is required and must be a keyword")
   (assert (or (nil? context-validator-map)
               (map? context-validator-map) "Context is an optional hash-map"))
-  (when (fn? (get-in fsm [:validators :states id]))
+  (when (fn? (get-in @fsm-ref [:validators :states id]))
     (throw (js/Error. (str "State already defined " (pr-str id)))))
   (let [context-validator (if (nil? context-validator-map)
                             (v/literal {})
                             (v/record context-validator-map))
         validator (v/record {:value (v/literal id)
                              :context context-validator})]
-    (-> fsm
-        (assoc-in [:validators :states id] validator))))
+    (swap! fsm-ref assoc-in [:validators :states id] validator)
+    fsm-ref))
 
 (defn- action-validator
   [id v-map]
@@ -35,15 +47,16 @@
                 (into (when (map? v-map)
                         {:payload (v/record v-map)})))))
 
-(defn def-action
-  [fsm id & [validator-map]]
+(defn register-action
+  [fsm-ref id & [validator-map]]
+  (assert-fsm fsm-ref)
   (assert (keyword? id) "Action id must be a keyword")
   (assert (or (map? validator-map)
               (nil? validator-map)) "Validator map must be nil or a hash-map of keys to validators")
-  (when (fn? (get-in fsm [:validators :actions id]))
+  (when (fn? (get-in @fsm-ref [:validators :actions id]))
     (throw (js/Error. (str "Already defined action for " (pr-str id)))))
-  (-> fsm
-      (assoc-in [:validators :actions id] (action-validator id validator-map))))
+  (swap! fsm-ref assoc-in [:validators :actions id] (action-validator id validator-map))
+  fsm-ref)
 
 (defn- pair-transitions
   [fsm states actions]
@@ -57,37 +70,39 @@
         action actions]
     [state action]))
 
-(defn def-transition
-  [fsm {:keys [states actions]} f]
-  (let [transitions (pair-transitions fsm states actions)]
-    (loop [fsm fsm
-           transitions transitions]
-      (let [[transition & transitions] transitions]
-        (when (fn? (get-in fsm [:transitions transition]))
-          (throw (js/Error. (str "Transition already defined for state "
-                                 (pr-str (first transition))
-                                 " and action " (pr-str (second transition))))))
-        (if (nil? transition)
-          fsm
-          (recur
-           (assoc-in fsm [:transitions transition] f)
-           transitions))))))
+(defn register-transition
+  [fsm-ref {:keys [states actions]} f]
+  (assert-fsm fsm-ref)
+  (let [fsm @fsm-ref
+        transitions (pair-transitions fsm states actions)]
+    (doseq [transition transitions]
+      (when (fn? (get-in @fsm-ref [:transitions transition]))
+        (throw (js/Error. (str "Transition already defined for state "
+                               (pr-str (first transition))
+                               " and action " (pr-str (second transition))))))
+      (swap! fsm-ref
+             assoc-in [:transitions transition] f))
+    fsm-ref))
 
 (defn init
-  ([fsm state]
-   (init fsm state {}))
-  ([fsm state context]
-   (assert (= (:state fsm) ::unset) "FSM is already initialized")
-   (if-let [validator (get-in fsm [:validators :states state])]
-     (let [fsm (-> fsm
-                   (assoc :state {:value state
-                                  :context context}))
-           result (v/validate validator (:state fsm))]
-       (if (v/valid? result)
-         fsm
-         (throw (js/Error. (str "Invalid state\n" (with-out-str
-                                                    (pprint (:errors result))))))))
-     (throw (js/Error. (str "No validator found for state " (pr-str state)))))))
+  ([fsm-ref state]
+   (init fsm-ref state {}))
+  ([fsm-ref state context]
+   (assert-fsm fsm-ref)
+   (let [fsm @fsm-ref]
+     (assert (= (:state fsm) ::unset) "FSM is already initialized")
+     (if-let [validator (get-in fsm [:validators :states state])]
+       (let [fsm (-> fsm
+                     (assoc :state {:value state
+                                    :context context}))
+             result (v/validate validator (:state fsm))]
+         (if (v/valid? result)
+           (do
+             (reset! fsm-ref fsm)
+             fsm-ref)
+           (throw (js/Error. (str "Invalid state\n" (with-out-str
+                                                      (pprint (:errors result))))))))
+       (throw (js/Error. (str "No validator found for state " (pr-str state))))))))
 
 (defn- assert-action
   [fsm action]
@@ -115,28 +130,18 @@
   [signal-controller]
   (.abort signal-controller))
 
-(defn- transition-effect
-  [{prev-effect :prev-effect :as prev-state} {next-effect :effect :as next-state}]
-  (when prev-effect
-    (abort (:signal prev-effect)))
-  (if next-effect
-    (let [controller (js/AbortController.)]
-      (-> next-state
-          (assoc-in [:effect :create] next-effect)
-          (assoc-in [:effect :signal] controller)))
-    next-state))
-
 (defn transition
-  [fsm action]
-  (let [action (assert-action fsm action)
+  [fsm-ref action]
+  (let [fsm @fsm-ref
+        action (assert-action fsm action)
         transition-fn (assert-transition fsm action)
         prev-state (:state fsm)
         new-state (-> prev-state
                       (merge (transition-fn prev-state action)))]
-    [(-> fsm
-         (assoc :state new-state))
-     {:prev prev-state
-      :next new-state
-      :at (js/Date.now)}]))
+    (assert-state fsm new-state)
+    (swap! fsm-ref assoc :state new-state)
+    {:prev prev-state
+     :next new-state
+     :at (js/Date.now)}))
 
 
