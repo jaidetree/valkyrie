@@ -2,10 +2,10 @@
 
 ## 1. Getting Started
 
-- [ ] Create src/main/dev/jaide/valkyrie/core.cljs
-- [ ] Create src/test/dev/jaide/valkyrie/core_test.cljs
-- [ ] Create shadow-cljs.edn
-- [ ] Create package.json
+- [x] Create src/main/dev/jaide/valkyrie/core.cljs
+- [x] Create src/test/dev/jaide/valkyrie/core_test.cljs
+- [x] Create shadow-cljs.edn
+- [x] Create package.json
 
 ## 2. Implement Defining a FSM Spec
 
