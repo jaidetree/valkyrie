@@ -9,16 +9,16 @@
 
 ## 2. Implement Defining a FSM Spec
 
-- [ ] Implement `define` to create an atom
-- [ ] Write tests for `define`
-- [ ] Implement `state` to register a state with optional validators
-- [ ] Write tests for `state`
-- [ ] Implement `action` to register an action with optional validators
-- [ ] Write tests for `action`
-- [ ] Implement `effect` to register an effect with optional validators
-- [ ] Write tests for `effect`
-- [ ] Implement `transition` to register a transition with dynamic body
-- [ ] Write tests for `transition`
+- [x] Implement `create` to create an atom
+- [x] Write tests for `create`
+- [x] Implement `state` to register a state with optional validators
+- [x] Write tests for `state`
+- [x] Implement `action` to register an action with optional validators
+- [x] Write tests for `action`
+- [x] Implement `effect` to register an effect with optional validators
+- [x] Write tests for `effect`
+- [x] Implement `transition` to register a transition with dynamic body
+- [x] Write tests for `transition`
 - [ ] Update `transition` to support static transitions
 - [ ] Implement tests for static `transition`
 - [ ] Ensure all tests for defining a FSM spec are passing

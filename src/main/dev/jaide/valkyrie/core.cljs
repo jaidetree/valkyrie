@@ -1,64 +1,102 @@
 (ns dev.jaide.valkyrie.core
+  (:refer-clojure :exclude [])
   (:require
+   [clojure.core :as cc]
+   [cljs.core :refer [IDeref ILookup]]
    [dev.jaide.valhalla.core :as v]
    [clojure.pprint :refer [pprint]]))
 
+(defprotocol IStateMachine
+  "A protocol for defining state machines against a spec atom. Supports creating
+  adapters for different state systems such as streams, reagent atoms, or
+  other state management libraries.
+
+  It is also important to implement cljs.core/IDeref -deref and 
+  cljs.core/ILookup -lookup methods to add support for deref syntax and common
+  get and get-in functions.
+  "
+  (get-state [machine]
+    "Returns the internal FSM state, intended mostly for internal use
+    or debugging")
+  (dispatch [machine action] "Dispatch an action to the FSM")
+  (subscribe [machine f] "Subscribe for transition updates"))
+
 (defn create
-  [id & {:keys [validate exhaustive atom-f] :as opts
-         :or {validate true
-              exhaustive false
-              atom-f atom}}]
-  (atom-f
-   {::fsm        id
-    :state       ::unset
+  [id & {:keys [atom] :as opts
+         :or {atom atom}}]
+  (atom
+   {:fsm        id
     :transitions {}
+    :cleanup-effect nil
+    :effects     {}
     :validators  {:states {}
-                  :actions {}}
+                  :actions {}
+                  :effects {}}
     :opts        opts}))
 
 (defn fsm?
-  [fsm-ref]
-  (contains? @fsm-ref ::fsm))
+  [fsm-spec-ref]
+  (contains? @fsm-spec-ref :fsm))
 
-(defn assert-fsm
-  [fsm-ref]
-  (assert (fsm? fsm-ref) "Invalid FSM, missing ::fsm id"))
+(defn assert-fsm-spec
+  [fsm-spec-ref]
+  (assert (fsm? fsm-spec-ref) "Invalid FSM, missing :fsm id"))
 
-(defn register-state
-  [fsm-ref id & [context-validator-map]]
-  (assert-fsm fsm-ref)
+(defn state
+  [fsm-spec-ref id & [context-validator-map]]
+  (assert-fsm-spec fsm-spec-ref)
   (assert (keyword? id) "State id value is required and must be a keyword")
   (assert (or (nil? context-validator-map)
               (map? context-validator-map) "Context is an optional hash-map"))
-  (when (fn? (get-in @fsm-ref [:validators :states id]))
+  (when (fn? (get-in @fsm-spec-ref [:validators :states id]))
     (throw (js/Error. (str "State already defined " (pr-str id)))))
   (let [context-validator (if (nil? context-validator-map)
                             (v/literal {})
                             (v/record context-validator-map))
         validator (v/record {:value (v/literal id)
                              :context context-validator})]
-    (swap! fsm-ref assoc-in [:validators :states id] validator)
-    fsm-ref))
+    (swap! fsm-spec-ref assoc-in [:validators :states id] validator)
+    fsm-spec-ref))
 
 (defn- action-validator
   [id v-map]
-  (v/record (-> {:type (v/literal id)
-                 :meta (v/nilable (v/assert map?))}
-                (into (when (map? v-map)
-                        {:payload (v/record v-map)})))))
+  (v/record (-> {:type (v/literal id)}
+                (merge (when (map? v-map)
+                         v-map)))))
 
-(defn register-action
-  [fsm-ref id & [validator-map]]
-  (assert-fsm fsm-ref)
+(defn action
+  [fsm-spec-ref id & [validator-map]]
+  (assert-fsm-spec fsm-spec-ref)
   (assert (keyword? id) "Action id must be a keyword")
   (assert (or (map? validator-map)
               (nil? validator-map)) "Validator map must be nil or a hash-map of keys to validators")
-  (when (fn? (get-in @fsm-ref [:validators :actions id]))
+  (when (fn? (get-in @fsm-spec-ref [:validators :actions id]))
     (throw (js/Error. (str "Already defined action for " (pr-str id)))))
-  (swap! fsm-ref assoc-in [:validators :actions id] (action-validator id validator-map))
-  fsm-ref)
+  (swap! fsm-spec-ref assoc-in [:validators :actions id] (action-validator id validator-map))
+  fsm-spec-ref)
 
-(defn- pair-transitions
+(defn- effect-validator
+  [id v-map]
+  (v/record (-> {:id (v/literal id)}
+                (merge (when (map? v-map)
+                         v-map)))))
+
+(defn effect
+  ([fsm-spec-ref id handler]
+   (effect fsm-spec-ref id nil handler))
+  ([fsm-spec-ref id validator-map handler]
+   (assert (keyword? id) "Effect id must be a keyword")
+   (assert (or (map? validator-map)
+               (nil? validator-map))
+           "Validator map must be nil or a hash-map of keys to validators")
+   (assert (fn? handler) "Effect handler must be a function")
+   (when (fn? (get-in @fsm-spec-ref [:validators :effects id]))
+     (throw (js/Error. (str "Effect already defined for " (pr-str id)))))
+   (swap! fsm-spec-ref assoc-in [:validators :effects id] (effect-validator id validator-map))
+   (swap! fsm-spec-ref assoc-in [:effects id] handler)
+   fsm-spec-ref))
+
+(defn- transitions-map->kvs
   [fsm states actions]
   (doseq [action actions]
     (when-not (fn? (get-in fsm [:validators :actions action]))
@@ -70,78 +108,169 @@
         action actions]
     [state action]))
 
-(defn register-transition
-  [fsm-ref {:keys [states actions]} f]
-  (assert-fsm fsm-ref)
-  (let [fsm @fsm-ref
-        transitions (pair-transitions fsm states actions)]
+(defn transition
+  [fsm-spec-ref {:keys [states actions]} f-or-kw]
+  (assert-fsm-spec fsm-spec-ref)
+  (let [fsm @fsm-spec-ref
+        transitions (transitions-map->kvs fsm states actions)]
     (doseq [transition transitions]
-      (when (fn? (get-in @fsm-ref [:transitions transition]))
+      (when (fn? (get-in @fsm-spec-ref [:transitions transition]))
         (throw (js/Error. (str "Transition already defined for state "
                                (pr-str (first transition))
                                " and action " (pr-str (second transition))))))
-      (swap! fsm-ref
-             assoc-in [:transitions transition] f))
-    fsm-ref))
+      (swap! fsm-spec-ref
+             assoc-in [:transitions transition] f-or-kw))
+    fsm-spec-ref))
+
+(defn assert-state
+  [fsm-spec state]
+  (if-let [validator (get-in fsm-spec [:validators :states (:value state)])]
+    (let [result (v/validate validator state)]
+      (if (v/valid? result)
+        (:output result)
+        (throw (js/Error.
+                (str "Invalid state\n"
+                     (v/errors->string (:errors result)))))))
+
+    (throw (js/Error. (str "FSM Init: Validator not found for state, got "
+                           (pr-str state))))))
+
+(defn assert-effect
+  [fsm-spec effect]
+  (if (nil? effect)
+    effect
+    (if-let [validator (get-in fsm-spec [:validators :effects (:id effect)])]
+      (let [result (v/validate validator effect)]
+        (if (v/valid? result)
+          (:output result)
+          (throw (js/Error. (str "FSMInvalidEffectError: Effect is not valid\n"
+                                 (v/errors->string (:errors result)))))))
+      (throw (js/Error. (str "FSMInvalidEffectError: Validator not found for effect, got "
+                             (pr-str effect)))))))
 
 (defn init
-  ([fsm-ref state]
-   (init fsm-ref state {}))
-  ([fsm-ref state context]
-   (assert-fsm fsm-ref)
-   (let [fsm @fsm-ref]
-     (assert (= (:state fsm) ::unset) "FSM is already initialized")
-     (if-let [validator (get-in fsm [:validators :states state])]
-       (let [fsm (-> fsm
-                     (assoc :state {:value state
-                                    :context context}))
-             result (v/validate validator (:state fsm))]
-         (if (v/valid? result)
-           (do
-             (reset! fsm-ref fsm)
-             fsm-ref)
-           (throw (js/Error. (str "Invalid state\n" (with-out-str
-                                                      (pprint (:errors result))))))))
-       (throw (js/Error. (str "No validator found for state " (pr-str state))))))))
+  [fsm-spec-ref state & [context effect]]
+  (assert-fsm-spec fsm-spec-ref)
+  (let [fsm-spec  @fsm-spec-ref
+        state {:value state
+               :context context
+               :effect effect}]
+    (assert-state fsm-spec state)
+    (assert-effect fsm-spec effect)
+    state))
 
 (defn- assert-action
   [fsm action]
   (let [validator (get-in fsm [:validators :actions (:type action)])]
     (assert (fn? validator) (str "Action not defined, got " (pr-str action)))
-    (-> (v/assert-valid validator action)
-        (:output)
-        (assoc-in [:meta :created-at] (js/Date.now)))))
+    action))
 
-(defn- assert-transition
-  [fsm action]
-  (let [state (get-in fsm [:state :value])
-        transition (get-in fsm [:transitions [state (:type action)]])]
+(defn- get-transition-fn
+  [fsm state action]
+  (let [transition (get-in fsm [:transitions [state (:type action)]])]
     (assert (fn? transition) (str "Transition not defined from state " (pr-str state)
-                                  " from " (pr-str (:type action))))
+                                  " to " (pr-str (:type action))))
     transition))
 
-(defn- assert-state
-  [fsm state]
-  (let [validator (get-in fsm [:validators :states (:value state)])]
-    (assert (fn? validator) (str "State not defined" (pr-str state)))
-    (v/assert-valid validator state)))
-
-(defn- abort
-  [signal-controller]
-  (.abort signal-controller))
-
-(defn transition
-  [fsm-ref action]
-  (let [fsm @fsm-ref
-        action (assert-action fsm action)
-        transition-fn (assert-transition fsm action)
-        prev-state (:state fsm)
-        new-state (-> prev-state
-                      (merge (transition-fn prev-state action)))]
-    (assert-state fsm new-state)
-    (swap! fsm-ref assoc :state new-state)
+(defn create-transition
+  [fsm-spec-ref prev-state action]
+  (let [fsm-spec @fsm-spec-ref
+        action (assert-action fsm-spec action)
+        transition-fn (get-transition-fn fsm-spec (:value prev-state) action)
+        next-state (-> prev-state
+                       (merge (transition-fn prev-state action)))]
     {:prev prev-state
-     :next new-state
+     :next next-state
+     :action action
      :at (js/Date.now)}))
 
+(defn run-effect!
+  [fsm-spec-ref fsm transition]
+  (let [cleanup-effect (get fsm :cleanup-effect)
+        prev-effect (get-in transition [:prev :effect])
+        next-effect (get-in transition [:next :effect])]
+    (cond
+      (= prev-effect next-effect)
+      [:unchanged cleanup-effect]
 
+      (and (nil? next-effect) (fn? cleanup-effect))
+      (do
+        (cleanup-effect)
+        [:updated nil])
+
+      (nil? next-effect)
+      [:updated nil]
+
+      :else
+      (do
+        (when (fn? cleanup-effect)
+          (cleanup-effect))
+        (let [spec @fsm-spec-ref
+              effect-validator (get-in spec [:validators :effects (:id next-effect)])
+              effect-fn (get-in spec [:effects (:id next-effect)])]
+          (assert (fn? effect-validator) (str "Effect undefined, got " (pr-str next-effect)))
+          (let [result (v/validate effect-validator next-effect)]
+            (if (v/valid? result)
+              [:updated (effect-fn {:fsm fsm
+                                    :state (:next transition)
+                                    :action (:action transition)
+                                    :effect next-effect
+                                    :dispatch #(dispatch fsm %)})]
+              (throw (js/Error. (str "Invalid effect " (v/errors->string (:errors result))))))))))))
+
+(defn reduce-state
+  [fsm-spec-ref prev-state action]
+  (let [spec @fsm-spec-ref
+        action (-> (assert-action spec action)
+                   (assoc-in [:meta :created-at] (js/Date.now)))
+        transition (create-transition fsm-spec-ref prev-state action)]
+    (assert-state spec (:next transition))
+    transition))
+
+(deftype AtomFSM [spec-atom state-atom]
+  IStateMachine
+
+  (get-state [_this]
+    @state-atom)
+
+  (dispatch [this action]
+    (let [state @this
+          transition (reduce-state spec-atom state action)]
+      (swap! state-atom update :state merge (:next transition))
+      (doseq [subscriber (get this :subscribers)]
+        (subscriber transition))
+      (swap! state-atom (fn [state]
+                          (let [[status cleanup-effect] (run-effect! spec-atom this transition)]
+                            (case status
+                              :updated (assoc state :cleanup-effect cleanup-effect)
+                              state))))))
+
+  (subscribe [_this f]
+    (swap! state-atom update :subscribers conj f)
+    (fn unsubscribe
+      []
+      (swap! state-atom update :subscribers disj f)))
+
+  IDeref
+  (-deref [_this]
+    (:state @state-atom))
+
+  ILookup
+  (-lookup [this k]
+    (-lookup this k nil))
+  (-lookup [this k not-found]
+    (get @state-atom k not-found)))
+
+(defn atom-fsm
+  [spec {:keys [state context effect atom]
+         :or {atom atom
+              context {}}}]
+  (AtomFSM. spec
+            (atom {:state (init spec state context effect)
+                   :cleanup-effect nil
+                   :subscribers #{}})))
+
+(comment
+  (let [xs #{:a :b :c}]
+    (disj xs :b)
+    (conj xs :d)))
