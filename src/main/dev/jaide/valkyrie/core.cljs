@@ -153,6 +153,19 @@
     [state action]))
 
 (defn transition
+  "Define a transition function between states from actions
+  
+  Arguments:
+  - fsm-spec-ref - An fsm-spec atom from the `create` function
+  - transition-map - A hash-map combining states and actions
+  - f-or-kw - A transition function that receives the current state and the 
+              action or keyword representing.
+  
+  Transition Map:
+  - :states - Vector of state keywords
+  - :actions - Vector of keywords representing the :type keyword of actions
+  
+  Returns the fsm-spec-ref atom with a transition function defined"
   [fsm-spec-ref {:keys [states actions]} f-or-kw]
   (assert-fsm-spec fsm-spec-ref)
   (let [fsm @fsm-spec-ref
@@ -163,10 +176,23 @@
                                (pr-str (first transition))
                                " and action " (pr-str (second transition))))))
       (swap! fsm-spec-ref
-             assoc-in [:transitions transition] f-or-kw))
+             assoc-in [:transitions transition]
+             (if (fn? f-or-kw)
+               f-or-kw
+               (fn []
+                 {:value f-or-kw}))))
     fsm-spec-ref))
 
 (defn assert-state
+  "Assert a state matches a defined state and passes validation. 
+  Mostly intended for internal use or implementing other state adapters.
+  
+  Arguments:
+  - fsm-spec - An fsm-spec hash-map already derefed
+  - state - A hash-map with :value keyword and :context hash-map
+  
+  Returns the parsed output of the state validator
+  "
   [fsm-spec state]
   (if-let [validator (get-in fsm-spec [:validators :states (:value state)])]
     (let [result (v/validate validator state)]
@@ -176,10 +202,19 @@
                 (str "Invalid state\n"
                      (v/errors->string (:errors result)))))))
 
-    (throw (js/Error. (str "FSM Init: Validator not found for state, got "
+    (throw (js/Error. (str "Validator not found for state, got "
                            (pr-str state))))))
 
 (defn assert-effect
+  "Assert an effect matches a defined effect and passes validation. 
+  Mostly intended for internal use or implementing other state adapters.
+  
+  Arguments:
+  - fsm-spec - An fsm-spec hash-map already derefed
+  - effect - A hash-map with :id keyword and arg attrs
+  
+  Returns the parsed output of the effect validator
+  "
   [fsm-spec effect]
   (if (nil? effect)
     effect
@@ -193,6 +228,19 @@
                              (pr-str effect)))))))
 
 (defn init
+  "Validate an initial state, context, and effect. Intended for internal use
+  or implementing new state adapters.
+
+  Arguments:
+  - fsm-spec-ref - An fsm-spec atom from the `create` function
+  - state - A keyword representing a defined state :value
+  - context - Hash map of context data, needs to match the validator defined
+              with state
+  - effect - Effect hash-map with :id and arg attrs, needs to match defined 
+             effect validator
+  
+  Returns state hash-map with :value, :context, and :effect keys
+  "
   [fsm-spec-ref state & [context effect]]
   (assert-fsm-spec fsm-spec-ref)
   (let [fsm-spec  @fsm-spec-ref
@@ -203,9 +251,16 @@
     (assert-effect fsm-spec effect)
     state))
 
-(defn- assert-action
-  [fsm action]
-  (let [validator (get-in fsm [:validators :actions (:type action)])]
+(defn assert-action
+  "Validates an action matches a defined action validator
+
+  Arguments:
+  - fsm-spec - An fsm-spec hash-map already derefed
+  - action - An action hash-map with a :type and arg attrs
+
+  Returns action hash-map"
+  [fsm-spec action]
+  (let [validator (get-in fsm-spec [:validators :actions (:type action)])]
     (assert (fn? validator) (str "Action not defined, got " (pr-str action)))
     action))
 
@@ -216,10 +271,9 @@
                                   " to " (pr-str (:type action))))
     transition))
 
-(defn create-transition
+(defn- create-transition
   [fsm-spec-ref prev-state action]
   (let [fsm-spec @fsm-spec-ref
-        action (assert-action fsm-spec action)
         transition-fn (get-transition-fn fsm-spec (:value prev-state) action)
         next-state (-> prev-state
                        (merge (transition-fn prev-state action)))]
@@ -228,7 +282,17 @@
      :action action
      :at (js/Date.now)}))
 
-(defn reduce-state
+(defn prev-state->next-state
+  "Perform a defined transition from one state to another with an action. 
+  Intended for internal use or implementing state adapters
+  
+  Arguments:
+  - fsm-spec-ref - An fsm-spec atom from the `create` function
+  - prev-state - A hash-map with :value, :context, and :effect keys
+  - action - A hash-map with a :type and arg attrs
+
+  Returns a transition has-map with :prev state :next state and :action
+  "
   [fsm-spec-ref prev-state action]
   (let [spec @fsm-spec-ref
         action (-> (assert-action spec action)
@@ -288,6 +352,18 @@
     Returns nil"))
 
 (defn run-effect!
+  "Given a transition, cancel previous running effects and perform another effect
+  
+  Arguments:
+  - fsm-spec-ref - An fsm-spec atom from the `create` function
+  - fsm - An instance of the IStateMachine protocol
+  - transition - A transition hash-map with :next, :prev, and :action args
+
+  Returns a vector with a keyword like the following:
+  [:unchanged function-or-nil]
+  [:updated nil]
+  [:updated function]
+  "
   [fsm-spec-ref fsm transition]
   (let [cleanup-effect (-> fsm (internal-state) (:cleanup-effect))
         prev-effect (get-in transition [:prev :effect])
@@ -322,10 +398,22 @@
               (throw (js/Error. (str "Invalid effect " (v/errors->string (:errors result))))))))))))
 
 (defn destroyed?
+  "Helper function to determine if a FSM instance was destroyed
+  
+  Arguments:
+  - fsm - A FiniteStateMachine instance implementing the IStateMachine protocol
+  
+  Returns boolean, true if the state is :dev.jaide.valkyrie.core/destroyed"
   [fsm]
   (= (get @fsm :value) ::destroyed))
 
 (defn assert-alive
+  "Helper function to assert fsm is alive (not destroyed)
+  
+  Arguments:
+  - fsm - A FiniteStateMachine instance implementing the IStateMachine protocol
+
+  Returns nil"
   [fsm]
   (assert (not (destroyed? fsm)) "Cannot proceed, this FSM was destroyed"))
 
@@ -339,7 +427,7 @@
   (dispatch [this action]
     (assert-alive this)
     (let [state @this
-          transition (reduce-state spec-atom state action)]
+          transition (prev-state->next-state spec-atom state action)]
       (swap! state-atom update :state merge (:next transition))
       (doseq [subscriber (get @state-atom :subscribers)]
         (subscriber transition))
