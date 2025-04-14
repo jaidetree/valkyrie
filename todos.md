@@ -60,7 +60,15 @@
 - [x] Write tests for subscribe
 - [ ] Write tests for destroy
 
-## 6. Prepare project for publishing
+## 6. Generate Mermaid charts
+
+- [ ] Update define transition API to require vector of return states
+- [ ] Update reduce state to ensure returned state included in vector of supported states
+- [ ] Define function to transform a spec into a mermaid chart string
+- [ ] Write test to ensure expected mermaid chart string
+- [ ] Ensure all affected tests pass
+
+## 7. Prepare project for publishing
 
 - [ ] Design logo
 - [ ] Update readme.md
@@ -68,7 +76,7 @@
 - [ ] Generate pom file
 - [ ] Update version
 
-## 7. Publish
+## 8. Publish
 
 - [ ] Add https://github.com/liquidz/build.edn
 - [ ] Configure CI
