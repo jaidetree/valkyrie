@@ -211,13 +211,13 @@
         (is (= (:context state) {}))
         (is (= (:effect state) nil))))))
 
-(deftest get-state-test
-  (testing "get-state"
+(deftest internal-state-test
+  (testing "internal-state"
     (testing "Returns full internal state"
       (let [fsm (fsm/atom-fsm
                  (create-fsm-with-ctx)
                  {:state :idle})
-            state (fsm/get-state fsm)]
+            state (fsm/internal-state fsm)]
         (is (= (-> state :state :value) :idle))
         (is (= (-> state :state :context) {}))
         (is (= (-> state :state :effect) nil))))))
@@ -279,6 +279,25 @@
           (is (= (:value next) :pending))
           (is (= (:context next) {:url "https://example.com"}))
           (is (= (:effect next)  {:id :fetch :url "https://example.com"})))))))
+
+(deftest destroy-test
+  (testing "destroy"
+    (testing "removes subscriptions and unsets state, context, and effect"
+      (let [fsm (fsm/atom-fsm
+                 (create-fsm-with-ctx)
+                 {:state :idle})
+            transactions (atom [])]
+        (fsm/subscribe fsm
+                       (fn [tx]
+                         (swap! transactions conj tx)))
+        (fsm/dispatch fsm {:type :fetch :url "https://example.com"})
+        (fsm/destroy fsm)
+        (is (thrown? :default (fsm/dispatch fsm {:type :complete :data {}})))
+        (let [state @fsm]
+          (is (= (count @transactions) 1))
+          (is (= (:value state) :dev.jaide.valkyrie.core/destroyed))
+          (is (= (:context state) {}))
+          (is (= (:effect state) :dev.jaide.valkyrie.core/destroyed)))))))
 
 (defn create-counter-fsm
   []

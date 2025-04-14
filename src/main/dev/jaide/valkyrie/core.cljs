@@ -6,21 +6,6 @@
    [dev.jaide.valhalla.core :as v]
    [clojure.pprint :refer [pprint]]))
 
-(defprotocol IStateMachine
-  "A protocol for defining state machines against a spec atom. Supports creating
-  adapters for different state systems such as streams, reagent atoms, or
-  other state management libraries.
-
-  It is also important to implement cljs.core/IDeref -deref and 
-  cljs.core/ILookup -lookup methods to add support for deref syntax and common
-  get and get-in functions.
-  "
-  (get-state [machine]
-    "Returns the internal FSM state, intended mostly for internal use
-    or debugging")
-  (dispatch [machine action] "Dispatch an action to the FSM")
-  (subscribe [machine f] "Subscribe for transition updates"))
-
 (defn create
   [id & {:keys [atom] :as opts
          :or {atom atom}}]
@@ -184,6 +169,32 @@
      :action action
      :at (js/Date.now)}))
 
+(defn reduce-state
+  [fsm-spec-ref prev-state action]
+  (let [spec @fsm-spec-ref
+        action (-> (assert-action spec action)
+                   (assoc-in [:meta :created-at] (js/Date.now)))
+        transition (create-transition fsm-spec-ref prev-state action)]
+    (assert-state spec (:next transition))
+    transition))
+
+(defprotocol IStateMachine
+  "A protocol for defining state machines against a spec atom. Supports creating
+  adapters for different state systems such as streams, reagent atoms, or
+  other state management libraries.
+
+  It is also important to implement cljs.core/IDeref -deref and 
+  cljs.core/ILookup -lookup methods to add support for deref syntax and common
+  get and get-in functions.
+  "
+  (internal-state
+    [machine]
+    "Returns the internal FSM state, intended mostly for internal use
+    or debugging")
+  (dispatch [machine action] "Dispatch an action to the FSM")
+  (subscribe [machine f] "Subscribe for transition updates")
+  (destroy [machine] "Remove all subscriptions and stop any running effects"))
+
 (defn run-effect!
   [fsm-spec-ref fsm transition]
   (let [cleanup-effect (get fsm :cleanup-effect)
@@ -218,38 +229,53 @@
                                     :dispatch #(dispatch fsm %)})]
               (throw (js/Error. (str "Invalid effect " (v/errors->string (:errors result))))))))))))
 
-(defn reduce-state
-  [fsm-spec-ref prev-state action]
-  (let [spec @fsm-spec-ref
-        action (-> (assert-action spec action)
-                   (assoc-in [:meta :created-at] (js/Date.now)))
-        transition (create-transition fsm-spec-ref prev-state action)]
-    (assert-state spec (:next transition))
-    transition))
+(defn destroyed?
+  [fsm]
+  (= (get @fsm :value) ::destroyed))
+
+(defn assert-alive
+  [fsm]
+  (assert (not (destroyed? fsm)) "Cannot proceed, this FSM was destroyed"))
 
 (deftype AtomFSM [spec-atom state-atom]
   IStateMachine
 
-  (get-state [_this]
+  (internal-state [this]
+    (assert-alive this)
     @state-atom)
 
   (dispatch [this action]
+    (assert-alive this)
     (let [state @this
           transition (reduce-state spec-atom state action)]
       (swap! state-atom update :state merge (:next transition))
-      (doseq [subscriber (get this :subscribers)]
+      (doseq [subscriber (get @state-atom :subscribers)]
         (subscriber transition))
       (swap! state-atom (fn [state]
                           (let [[status cleanup-effect] (run-effect! spec-atom this transition)]
                             (case status
-                              :updated (assoc state :cleanup-effect cleanup-effect)
+                              :updated (assoc state :cleanup-effect (when (fn? cleanup-effect)
+                                                                      cleanup-effect))
                               state))))))
 
-  (subscribe [_this f]
+  (subscribe [this f]
+    (assert-alive this)
     (swap! state-atom update :subscribers conj f)
     (fn unsubscribe
       []
       (swap! state-atom update :subscribers disj f)))
+
+  (destroy [this]
+    (assert-alive this)
+    (when-let [cleanup-effect (get @state-atom :cleanup-effect)]
+      (println "cleanup" cleanup-effect)
+      (cleanup-effect))
+    (swap! state-atom merge {:state {:value ::destroyed
+                                     :context {}
+                                     :effect ::destroyed}
+                             :cleanup-effect nil
+                             :subscribers #{}})
+    this)
 
   IDeref
   (-deref [_this]
@@ -259,7 +285,7 @@
   (-lookup [this k]
     (-lookup this k nil))
   (-lookup [this k not-found]
-    (get @state-atom k not-found)))
+    (get @this k not-found)))
 
 (defn atom-fsm
   [spec {:keys [state context effect atom]
