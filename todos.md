@@ -35,30 +35,30 @@
 - [x] Write tests for `reduce-state*` reducer
 - [x] Implement `run-effect!` helper
 - [x] Write tests for `run-effect!`
-- [ ] Ensure all tests for reduce-state and run-effect! are passing
+- [x] Ensure all tests for reduce-state and run-effect! are passing
 
 ## 4. Implement IStateMachine Protocol
 
 - [x] Define `dispatch` function
-- [ ] Write docstr for `dispatch`
+- [x] Write docstr for `dispatch`
 - [x] Define `internal-state` function
-- [ ] Write docstr for `internal-state`
+- [x] Write docstr for `internal-state`
 - [x] Define `subscribe` function
-- [ ] Write docstr for `subscribe`
-- [ ] Define `destroy` function
-- [ ] Write docstr for `destroy`
+- [x] Write docstr for `subscribe`
+- [x] Define `destroy` function
+- [x] Write docstr for `destroy`
 
 ## 5. Implement AtomFSM Using the IStateMachine Protocol
 
 - [x] Define AtomFSM deftype
-- [ ] Implement internal-state
+- [x] Implement internal-state
 - [x] Implement dispatch
 - [x] Implement subscribe
-- [ ] Implement destroy
+- [x] Implement destroy
 - [x] Write tests for internal-state
 - [x] Write tests for dispatch
 - [x] Write tests for subscribe
-- [ ] Write tests for destroy
+- [x] Write tests for destroy
 
 ## 6. Generate Mermaid charts
 

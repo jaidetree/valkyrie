@@ -189,11 +189,44 @@
   "
   (internal-state
     [machine]
-    "Returns the internal FSM state, intended mostly for internal use
-    or debugging")
-  (dispatch [machine action] "Dispatch an action to the FSM")
-  (subscribe [machine f] "Subscribe for transition updates")
-  (destroy [machine] "Remove all subscriptions and stop any running effects"))
+    "Intended for internal use or debugging.
+    
+    Arguments:
+    - fsm - Instance of a FSM implementing the IStateMachine protocol
+    
+    Returns internal state hash-map including the state, cleanup-effect,
+    and subscriptions")
+  (dispatch
+    [machine action]
+    "Dispatch actions to invoke defined transitions between states.
+    States returned are validated against the fsm spec this machine was
+    created against.
+
+    Arguments:
+    - fsm - Instance of a FSM implementing the IStateMachine protocol
+    - action - Hash-map with a :type and other types matching what an fsm spec
+               action
+
+    Returns a transition hash-map with :next, :prev, and :action
+    ")
+  (subscribe
+    [machine listener]
+    "Add a listener function to receive transition hash-maps
+    
+    Arguments:
+    - fsm - Instance of a FSM implementing the IStateMachine protocol
+    - listener - A function that accepts transition hash-maps
+    
+    Returns a function to unsubscribe the listener from future transitions")
+  (destroy
+    [machine]
+    "Remove all subscriptions, clears any stored state, and stops any running 
+     effects.
+    
+    Arguments:
+    - fsm - Instance of a FSM implementing the IStateMachine protocol
+    
+    Returns nil"))
 
 (defn run-effect!
   [fsm-spec-ref fsm transition]
@@ -256,14 +289,15 @@
                             (case status
                               :updated (assoc state :cleanup-effect (when (fn? cleanup-effect)
                                                                       cleanup-effect))
-                              state))))))
+                              state))))
+      transition))
 
-  (subscribe [this f]
+  (subscribe [this listener]
     (assert-alive this)
-    (swap! state-atom update :subscribers conj f)
+    (swap! state-atom update :subscribers conj listener)
     (fn unsubscribe
       []
-      (swap! state-atom update :subscribers disj f)))
+      (swap! state-atom update :subscribers disj listener)))
 
   (destroy [this]
     (assert-alive this)
@@ -288,6 +322,22 @@
     (get @this k not-found)))
 
 (defn atom-fsm
+  "Create an FSM instance from a spec with an initial state based on an atom.
+
+  Notes:
+  - Every transition must be validated
+  - Returned FSM can be derefed @fsm as well as (get fsm :value)
+
+  Arguments:
+  - spec - An FSM spec atom created with the `fsm/create` function
+  - opts - Required hashmap of named options
+
+  Options:
+  - state - Initial state value keyword
+  - context - Optional default context if initial state includes context
+
+  Returns an instance of FSMAtom
+  "
   [spec {:keys [state context effect atom]
          :or {atom atom
               context {}}}]
