@@ -7,10 +7,19 @@
    [clojure.pprint :refer [pprint]]))
 
 (defn create
+  "Create an fsm-spec atom
+  Arguments:
+  - id - Keyword used to identify the FSM-spec
+  - opts - Optional options hash-map
+  
+  Options:
+  - :atom - A function to instantiate an atom. For example reagent.core/ratom
+  
+  Returns an atom containing an empty fsm-spec hash-map"
   [id & {:keys [atom] :as opts
          :or {atom atom}}]
   (atom
-   {:fsm        id
+   {:fsm/id      id
     :transitions {}
     :cleanup-effect nil
     :effects     {}
@@ -20,14 +29,37 @@
     :opts        opts}))
 
 (defn fsm?
+  "Determines if a possible fsm-spec-atom is likely an fsm-spec
+  
+  Arguments:
+  - fsm-spec-ref - An fsm-spec atom from the `create` function
+  
+  Returns true if the argument is an atom with the :fsm/id property"
   [fsm-spec-ref]
-  (contains? @fsm-spec-ref :fsm))
+  (contains? @fsm-spec-ref :fsm/id))
 
 (defn assert-fsm-spec
+  "Asserts that the argument is an fsm-spec-ref atom or throws an error
+
+  Arguments:
+  - fsm-spec-ref - An fsm-spec atom from the `create` function
+
+  Returns nil
+  "
   [fsm-spec-ref]
   (assert (fsm? fsm-spec-ref) "Invalid FSM, missing :fsm id"))
 
 (defn state
+  "Defines a valid state and context validator
+  
+  Arguments:
+  - fsm-spec-ref - An fsm-spec atom from the `create` function
+  - id - Keyword identifying the unique state for example :idle
+  - context-validator-map - An optional hash-map of context keywords to
+                            valhalla compatible validation functions
+  
+  Returns the fsm-spec-ref atom with a state validator defined
+  "
   [fsm-spec-ref id & [context-validator-map]]
   (assert-fsm-spec fsm-spec-ref)
   (assert (keyword? id) "State id value is required and must be a keyword")
@@ -50,6 +82,15 @@
                          v-map)))))
 
 (defn action
+  "Defines a valid action and validator
+  
+  Arguments:
+  - fsm-spec-ref - An fsm-spec atom from the `create` function
+  - id - Keyword identifying the unique action for example :fetch
+  - validator-hash-map - An optional hash-map of action keywords to
+                         valhalla compatible validation functions
+  
+  Returns the fsm-spec-ref atom with an action validator defined"
   [fsm-spec-ref id & [validator-map]]
   (assert-fsm-spec fsm-spec-ref)
   (assert (keyword? id) "Action id must be a keyword")
@@ -67,6 +108,24 @@
                          v-map)))))
 
 (defn effect
+  "Defines a valid effect and validator
+  
+  Arguments:
+  - fsm-spec-ref - An fsm-spec atom from the `create` function
+  - id - Keyword identifying the unique effect for example :start-timer
+  - validator-hash-map - An optional hash-map of effect argument keywords to
+                         valhalla compatible validation functions
+  - handler - Required function to receive a hash map with the following:
+    - :fsm - Instance of the fsm
+    - :state - Current state that was just transitioned to
+    - :action - Action that caused the transition
+    - :dispatch - Function to dispatch more actions
+    - :effect - The effect hash-map with {:id <id>} and possible args
+
+  The handler can optionally return a function to cleanup the side-effect such
+  as removing a DOM listener.
+  
+  Returns the fsm-spec-ref atom with an effect validator defined"
   ([fsm-spec-ref id handler]
    (effect fsm-spec-ref id nil handler))
   ([fsm-spec-ref id validator-map handler]
@@ -230,7 +289,7 @@
 
 (defn run-effect!
   [fsm-spec-ref fsm transition]
-  (let [cleanup-effect (get fsm :cleanup-effect)
+  (let [cleanup-effect (-> fsm (internal-state) (:cleanup-effect))
         prev-effect (get-in transition [:prev :effect])
         next-effect (get-in transition [:next :effect])]
     (cond
