@@ -19,50 +19,45 @@
 - [x] Write tests for `effect`
 - [x] Implement `transition` to register a transition with dynamic body
 - [x] Write tests for `transition`
-- [ ] Update `transition` to support static transitions
-- [ ] Implement tests for static `transition`
-- [ ] Ensure all tests for defining a FSM spec are passing
+- [x] Update `transition` to support static transitions
+- [x] Implement tests for static `transition`
+- [x] Ensure all tests for defining a FSM spec are passing
 
 ## 3. Implement Reducers for Updating a FSM instance
 
-- [ ] Implement `reduce-state*` reducer to calculate new state with value, ctx, and effect
-  - [ ] Validate action
-  - [ ] Check if transition is supported
+- [x] Implement `reduce-state*` reducer to calculate new state with value, ctx, and effect
+  - [x] Validate action
+  - [x] Check if transition is supported
   - [ ] If transition found but it's a keyword, update state value
-  - [ ] If transition not found and exhaustive is enabled, throw error for unhandled state
+  - [x] If transition not found and exhaustive is enabled, throw error for unhandled state
   - [ ] If state returned is a keyword, update state value
-  - [ ] If hash-map returned assume state, context, and optional effect
-- [ ] Write tests for `reduce-state*` reducer
-- [ ] Implement `run-effect!` helper
-  - [ ] Provide
-- [ ] Write tests for `run-effect!`
+  - [x] If hash-map returned assume state, context, and optional effect
+- [x] Write tests for `reduce-state*` reducer
+- [x] Implement `run-effect!` helper
+- [x] Write tests for `run-effect!`
 - [ ] Ensure all tests for reduce-state and run-effect! are passing
 
 ## 4. Implement IStateMachine Protocol
 
-- [ ] Define `init` function
-- [ ] Write docstr for `init`
-- [ ] Define `dispatch` function
+- [x] Define `dispatch` function
 - [ ] Write docstr for `dispatch`
-- [ ] Define `get` function
-- [ ] Write docstr for `get`
-- [ ] Define `subscribe` function
+- [x] Define `internal-state` function
+- [ ] Write docstr for `internal-state`
+- [x] Define `subscribe` function
 - [ ] Write docstr for `subscribe`
 - [ ] Define `destroy` function
 - [ ] Write docstr for `destroy`
 
 ## 5. Implement AtomFSM Using the IStateMachine Protocol
 
-- [ ] Define AtomFSM defrecord
-- [ ] Implement init
-- [ ] Implement get
-- [ ] Implement dispatch
-- [ ] Implement subscribe
+- [x] Define AtomFSM deftype
+- [ ] Implement internal-state
+- [x] Implement dispatch
+- [x] Implement subscribe
 - [ ] Implement destroy
-- [ ] Write tests for init
-- [ ] Write tests for get
-- [ ] Write tests for dispatch
-- [ ] Write tests for subscribe
+- [x] Write tests for internal-state
+- [x] Write tests for dispatch
+- [x] Write tests for subscribe
 - [ ] Write tests for destroy
 
 ## 6. Prepare project for publishing

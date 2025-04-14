@@ -175,8 +175,9 @@
                      :actions [:complete]}
                     (fn [state action]
                       {:value :fulfilled
-                       :data (:data action)
-                       :effect nil}))))
+                       :context (:data action)
+                       :effect nil}))
+    fsm))
 
 (deftest init-test
   (testing "init"
@@ -278,6 +279,54 @@
           (is (= (:value next) :pending))
           (is (= (:context next) {:url "https://example.com"}))
           (is (= (:effect next)  {:id :fetch :url "https://example.com"})))))))
+
+(defn create-counter-fsm
+  []
+  (let [fsm (fsm/create :ctx-counter-fsm)]
+    (fsm/state fsm :active {:num (v/number)})
+    (fsm/state fsm :completed {:num (v/number)})
+    (fsm/action fsm :increment)
+    (fsm/action fsm :complete)
+    (fsm/effect fsm :increment-again
+                (fn [{:keys [dispatch]}]
+                  (dispatch {:type :increment})
+                  (dispatch {:type :complete})))
+    (fsm/transition fsm
+                    {:states [:active]
+                     :actions [:increment]}
+                    (fn [state _action]
+                      {:value :active
+                       :context {:num (inc (get-in state [:context :num]))}
+                       :effect {:id :increment-again}}))
+    (fsm/transition fsm
+                    {:states [:active]
+                     :actions [:complete]}
+                    (fn [state _action]
+                      {:value :completed
+                       :context {:num (get-in state [:context :num])}
+                       :effect nil}))
+    fsm))
+
+(deftest run-effect-test
+  (testing "side-effects can run and dispatch multiple actions"
+    (let [fsm (fsm/atom-fsm
+               (create-counter-fsm)
+               {:state :active
+                :context {:num 0}})
+          promise (js/Promise.
+                   (fn [resolve]
+                     (fsm/subscribe fsm
+                                    (fn [{:keys [next]}]
+                                      (when (= (:value next) :completed)
+                                        (resolve next))))))]
+      (fsm/dispatch fsm {:type :increment})
+      (async done
+             (-> promise
+                 (.then (fn [state]
+                          (is (= (:value state) :completed))
+                          (is (= (:context state) {:num 2}))
+                          (is (= (:effect state)  nil))
+                          (done))))))))
 
 (comment
   #_(def test-fsm
