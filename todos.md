@@ -62,10 +62,18 @@
 
 ## 6. Generate Mermaid charts
 
-- [ ] Update define transition API to require vector of return states
-- [ ] Update reduce state to ensure returned state included in vector of supported states
-- [ ] Define function to transform a spec into a mermaid chart string
-- [ ] Write test to ensure expected mermaid chart string
+- [x] Update define transition API to require vector of return states
+- [x] Update reduce state to ensure returned state included in vector of supported states
+- [x] Define function to transform a spec into a mermaid chart string
+- [x] Write test to ensure expected mermaid chart string
+- [x] Ensure all affected tests pass
+
+## 7. Enhance graphs
+
+- [ ] Define initial function to set initial state of spec
+- [ ] Write unit test for initial function
+- [ ] Support initial state overrides when creating atom-fsm instance
+- [ ] Update spec->diagram function to indicate starting state
 - [ ] Ensure all affected tests pass
 
 ## 7. Prepare project for publishing

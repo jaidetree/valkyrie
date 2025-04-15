@@ -55,14 +55,13 @@
                             {:test-id (v/string)})]
         (is (thrown? :default (fsm/action fsm :run-test {:test-id (v/number)})))))))
 
-(def test-fsm
-  (fsm/create :test-fsm))
-
-(fsm/state test-fsm :green-light)
-(fsm/state test-fsm :yellow-light)
-(fsm/state test-fsm :red-light)
-
-(fsm/action test-fsm :change-light)
+(defn test-fsm
+  []
+  (-> (fsm/create :test-fsm)
+      (fsm/state :green-light)
+      (fsm/state :yellow-light)
+      (fsm/state :red-light)
+      (fsm/action :change-light)))
 
 #_(def test-fsm
     (-> (fsm/create)
@@ -74,51 +73,62 @@
 (deftest register-transition-test
   (testing "register-transition"
     (testing "define map of transitions"
-      (let [fsm test-fsm
+      (let [fsm (test-fsm)
             fsm (fsm/transition
                  fsm
-                 {:states [:green-light :yellow-light :red-light]
-                  :actions [:change-light]}
+                 {:from [:green-light :yellow-light :red-light]
+                  :actions [:change-light]
+                  :to [:green-light :red-light :yellow-light]}
                  (fn [{:keys [state _context _effect]} action]
                    (case [state action]
                      [:green-light :change-light] {:state :yellow-light}
                      [:yellow-light :change-light] {:state :red-light}
                      [:red-light :change-light] {:state :green-light})))
             fsm @fsm]
-        (is (fn? (get-in fsm [:transitions [:green-light :change-light]])))
-        (is (fn? (get-in fsm [:transitions [:yellow-light :change-light]])))
-        (is (fn? (get-in fsm [:transitions [:red-light :change-light]])))))
+        (is (fn? (get-in fsm [:transitions [:green-light :change-light] :handler])))
+        (is (fn? (get-in fsm [:transitions [:yellow-light :change-light] :handler])))
+        (is (fn? (get-in fsm [:transitions [:red-light :change-light] :handler])))))
 
     (testing "throws error on overlapping defs"
-      (let [fsm test-fsm]
+      (let [fsm (test-fsm)]
+        (fsm/transition
+         fsm
+         {:from [:yellow-light]
+          :actions [:change-light]
+          :to [:red-light]}
+         (fn [{:keys [state _context _effect]} _action]
+           {:state :red-light}))
         (is
          (thrown? :default
                   (fsm/transition
                    fsm
-                   {:states [:yellow-light]
-                    :actions [:change-light]}
-                   (fn [{:keys [state _context _effect]} action]
+                   {:from [:yellow-light]
+                    :actions [:change-light]
+                    :to [:red-light]}
+                   (fn [{:keys [state _context _effect]} _action]
                      {:state :red-light}))))))
 
     (testing "throws error if state was not defined"
-      (let [fsm test-fsm]
+      (let [fsm (test-fsm)]
         (is
          (thrown? :default
                   (fsm/transition
                    fsm
-                   {:states [:purple-light]
-                    :actions [:change-light]}
+                   {:from [:purple-light]
+                    :actions [:change-light]
+                    :to [:red-light]}
                    (fn [{:keys [state _context _effect]} action]
                      {:state :red-light}))))))
 
     (testing "throws error if action was not defined"
-      (let [fsm test-fsm]
+      (let [fsm (test-fsm)]
         (is
          (thrown? :default
                   (fsm/transition
                    fsm
-                   {:states [:green-light :yellow-light :red-light]
-                    :actions [:flash-light]}
+                   {:from [:green-light :yellow-light :red-light]
+                    :actions [:flash-light]
+                    :to [:green-light :yellow-light :red-light]}
                    (fn [{:keys [_state _context _effect]} _action]
                      {:state :red-light}))))))))
 
@@ -164,15 +174,17 @@
                 (fn [{:keys [effect]}]
                   effect))
     (fsm/transition fsm
-                    {:states [:idle]
-                     :actions [:fetch]}
+                    {:from [:idle]
+                     :actions [:fetch]
+                     :to [:pending]}
                     (fn [{:keys [_value _context]} action]
                       {:value :pending
                        :context {:url (:url action)}
                        :effect {:id :fetch :url (:url action)}}))
     (fsm/transition fsm
-                    {:states [:pending]
-                     :actions [:complete]}
+                    {:from [:pending]
+                     :actions [:complete]
+                     :to [:fulfilled]}
                     (fn [state action]
                       {:value :fulfilled
                        :context (:data action)
@@ -311,15 +323,17 @@
                   (dispatch {:type :increment})
                   (dispatch {:type :complete})))
     (fsm/transition fsm
-                    {:states [:active]
-                     :actions [:increment]}
+                    {:from [:active]
+                     :actions [:increment]
+                     :to [:active]}
                     (fn [state _action]
                       {:value :active
                        :context {:num (inc (get-in state [:context :num]))}
                        :effect {:id :increment-again}}))
     (fsm/transition fsm
-                    {:states [:active]
-                     :actions [:complete]}
+                    {:from [:active]
+                     :actions [:complete]
+                     :to [:completed]}
                     (fn [state _action]
                       {:value :completed
                        :context {:num (get-in state [:context :num])}
@@ -327,25 +341,57 @@
     fsm))
 
 (deftest run-effect-test
-  (testing "side-effects can run and dispatch multiple actions"
-    (let [fsm (fsm/atom-fsm
-               (create-counter-fsm)
-               {:state :active
-                :context {:num 0}})
-          promise (js/Promise.
-                   (fn [resolve]
-                     (fsm/subscribe fsm
-                                    (fn [{:keys [next]}]
-                                      (when (= (:value next) :completed)
-                                        (resolve next))))))]
-      (fsm/dispatch fsm {:type :increment})
-      (async done
-             (-> promise
-                 (.then (fn [state]
-                          (is (= (:value state) :completed))
-                          (is (= (:context state) {:num 2}))
-                          (is (= (:effect state)  nil))
-                          (done))))))))
+  (testing "run-effect!"
+    (testing "side-effects can run and dispatch multiple actions"
+      (let [fsm (fsm/atom-fsm
+                 (create-counter-fsm)
+                 {:state :active
+                  :context {:num 0}})
+            promise (js/Promise.
+                     (fn [resolve]
+                       (fsm/subscribe fsm
+                                      (fn [{:keys [next]}]
+                                        (when (= (:value next) :completed)
+                                          (resolve next))))))]
+        (fsm/dispatch fsm {:type :increment})
+        (async done
+               (-> promise
+                   (.then (fn [state]
+                            (is (= (:value state) :completed))
+                            (is (= (:context state) {:num 2}))
+                            (is (= (:effect state)  nil))
+                            (done)))))))))
+
+(defn traffic-fsm
+  []
+  (-> (fsm/create :traffic-fsm)
+      (fsm/state :red-light)
+      (fsm/state :yellow-light)
+      (fsm/state :green-light)
+      (fsm/action :change-light)
+
+      (fsm/transition
+       {:from [:red-light]
+        :actions [:change-light]
+        :to [:green-light]}
+       :green-light)
+      (fsm/transition
+       {:from [:green-light]
+        :actions [:change-light]
+        :to [:yellow-light]}
+       :yellow-light)
+      (fsm/transition
+       {:from [:yellow-light]
+        :actions [:change-light]
+        :to [:red-light]}
+       :red-light)))
+
+(deftest spec->diagram-test
+  (testing "spec->diagram"
+    (let [diagram (fsm/spec->diagram (traffic-fsm))]
+      (js/console.log diagram)
+      (is (= diagram
+             "flowchart TD\n    :red-light-->|:change-light| :green-light\n    :green-light-->|:change-light| :yellow-light\n    :yellow-light-->|:change-light| :red-light")))))
 
 (comment
   #_(def test-fsm

@@ -2,6 +2,7 @@
   (:refer-clojure :exclude [])
   (:require
    [clojure.core :as cc]
+   [clojure.string :as s]
    [cljs.core :refer [IDeref ILookup]]
    [dev.jaide.valhalla.core :as v]
    [clojure.pprint :refer [pprint]]))
@@ -157,30 +158,31 @@
   
   Arguments:
   - fsm-spec-ref - An fsm-spec atom from the `create` function
-  - transition-map - A hash-map combining states and actions
+  - transition-map - A hash-map combining states, actions, and to states
   - f-or-kw - A transition function that receives the current state and the 
               action or keyword representing.
   
   Transition Map:
-  - :states - Vector of state keywords
+  - :from - Vector of state keywords to transition from
   - :actions - Vector of keywords representing the :type keyword of actions
+  - :to - Vector of possible destination states
   
   Returns the fsm-spec-ref atom with a transition function defined"
-  [fsm-spec-ref {:keys [states actions]} f-or-kw]
+  [fsm-spec-ref {:keys [from actions to]} f-or-kw]
   (assert-fsm-spec fsm-spec-ref)
   (let [fsm @fsm-spec-ref
-        transitions (transitions-map->kvs fsm states actions)]
-    (doseq [transition transitions]
-      (when (fn? (get-in @fsm-spec-ref [:transitions transition]))
+        transitions (transitions-map->kvs fsm from actions)]
+    (doseq [state-action-vec transitions]
+      (when (fn? (get-in @fsm-spec-ref [:transitions state-action-vec :handler]))
         (throw (js/Error. (str "Transition already defined for state "
-                               (pr-str (first transition))
-                               " and action " (pr-str (second transition))))))
-      (swap! fsm-spec-ref
-             assoc-in [:transitions transition]
-             (if (fn? f-or-kw)
-               f-or-kw
-               (fn []
-                 {:value f-or-kw}))))
+                               (pr-str (first state-action-vec))
+                               " and action " (pr-str (second state-action-vec))))))
+      (swap! fsm-spec-ref assoc-in [:transitions state-action-vec]
+             {:allowed-states (set to)
+              :handler (if (fn? f-or-kw)
+                         f-or-kw
+                         (fn []
+                           {:value f-or-kw}))}))
     fsm-spec-ref))
 
 (defn assert-state
@@ -264,19 +266,26 @@
     (assert (fn? validator) (str "Action not defined, got " (pr-str action)))
     action))
 
-(defn- get-transition-fn
+(defn- get-transition
   [fsm state action]
-  (let [transition (get-in fsm [:transitions [state (:type action)]])]
-    (assert (fn? transition) (str "Transition not defined from state " (pr-str state)
-                                  " to " (pr-str (:type action))))
+  (let [transition (get-in fsm [:transitions [state (:type action)]])
+        {:keys [handler]} transition]
+    (assert (fn? handler) (str "Transition not defined from state " (pr-str state)
+                               " to " (pr-str (:type action))))
     transition))
 
 (defn- create-transition
   [fsm-spec-ref prev-state action]
   (let [fsm-spec @fsm-spec-ref
-        transition-fn (get-transition-fn fsm-spec (:value prev-state) action)
+        {:keys [handler allowed-states]} (get-transition fsm-spec (:value prev-state) action)
         next-state (-> prev-state
-                       (merge (transition-fn prev-state action)))]
+                       (merge (handler prev-state action)))]
+    (assert-state fsm-spec next-state)
+    (assert (contains? allowed-states (:value next-state))
+            (str "Resulting state "
+                 (pr-str (:value next-state))
+                 " was not in list of allowed :to states "
+                 (pr-str allowed-states)))
     {:prev prev-state
      :next next-state
      :action action
@@ -298,7 +307,6 @@
         action (-> (assert-action spec action)
                    (assoc-in [:meta :created-at] (js/Date.now)))
         transition (create-transition fsm-spec-ref prev-state action)]
-    (assert-state spec (:next transition))
     transition))
 
 (defprotocol IStateMachine
@@ -492,6 +500,28 @@
             (atom {:state (init spec state context effect)
                    :cleanup-effect nil
                    :subscribers #{}})))
+
+(defn spec->diagram
+  "Transform a FSM spec into a Mermaid flowchart diagram
+  
+  Arguments:
+  - fsm-spec-ref - An FSM spec atom created with the `fsm/create` function
+  - opts - Required hashmap of named option
+  
+  Options:
+  - direction - String should be a mermaid string TD or LR
+  
+  Returns a mermaid chart string"
+  [fsm-spec-ref & {:keys [direction]
+                   :or {direction "TD"}}]
+  (let [spec @fsm-spec-ref]
+    (->> (:transitions spec)
+         (mapcat
+          (fn [[[state action] {:keys [allowed-states]}]]
+            (for [dest allowed-states]
+              (str "    " state "-->|" action "| " dest))))
+         (s/join "\n")
+         (str "flowchart " direction "\n"))))
 
 (comment
   (let [xs #{:a :b :c}]
