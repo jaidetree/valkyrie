@@ -20,6 +20,11 @@ jobs:
           distribution: "temurin"
           java-version: "17"
 
+      - name: Install clojure tools
+        uses: DeLaGuardo/setup-clojure@13.2
+        with:
+          cli: 1.12.0.1530
+
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
