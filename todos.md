@@ -70,24 +70,25 @@
 
 ## 7. Enhance graphs
 
-- [ ] Define initial function to set initial state of spec
-- [ ] Write unit test for initial function
-- [ ] Support initial state overrides when creating atom-fsm instance
-- [ ] Update spec->diagram function to indicate starting state
-- [ ] Ensure all affected tests pass
+- [x] Define initial function to set initial state of spec
+- [x] Write unit test for initial function
+- [x] Support initial state overrides when creating atom-fsm instance
+- [x] Update spec->diagram function to indicate starting state
+- [x] Ensure all affected tests pass
 
 ## 7. Prepare project for publishing
 
 - [ ] Design logo
-- [ ] Update readme.md
-- [ ] Copy versioning script from valhalla
+- [x] Update readme.md
+- [x] Copy versioning script from valhalla
 - [ ] Generate pom file
 - [ ] Update version
 
 ## 8. Publish
 
 - [ ] Add https://github.com/liquidz/build.edn
-- [ ] Configure CI
+- [x] Configure CI
+- [ ] Set env vars
 - [ ] Draft a release
 - [ ] Deploy to clojars
 - [ ] Announce in Slack

@@ -21,6 +21,8 @@
          :or {atom atom}}]
   (atom
    {:fsm/id      id
+    :initial     {:value nil
+                  :context {}}
     :transitions {}
     :cleanup-effect nil
     :effects     {}
@@ -229,25 +231,39 @@
       (throw (js/Error. (str "FSMInvalidEffectError: Validator not found for effect, got "
                              (pr-str effect)))))))
 
+(defn initial
+  "Set default initial state of fsm spec. Can be overwritten in atom-fsm
+  function. Must be called after states are defined as state will be validated.
+  
+  Arguments:
+  - fsm-spec-ref - An fsm-spec atom from the `create` function
+  - state - A state hashmap with :value and :context attrs
+  
+  Returns the fsm-spec-ref atom for chaining"
+  [fsm-spec-ref state]
+  (let [fsm-spec @fsm-spec-ref
+        state (merge {:context {}} state)
+        state (assert-state fsm-spec state)]
+    (swap! fsm-spec-ref assoc :initial state)
+    fsm-spec-ref))
+
 (defn init
   "Validate an initial state, context, and effect. Intended for internal use
   or implementing new state adapters.
 
   Arguments:
   - fsm-spec-ref - An fsm-spec atom from the `create` function
-  - state - A keyword representing a defined state :value
-  - context - Hash map of context data, needs to match the validator defined
-              with state
+  - state - A hash-map with :value state keyword and optional :context attr
   - effect - Effect hash-map with :id and arg attrs, needs to match defined 
              effect validator
   
   Returns state hash-map with :value, :context, and :effect keys
   "
-  [fsm-spec-ref state & [context effect]]
+  [fsm-spec-ref state & [effect]]
   (assert-fsm-spec fsm-spec-ref)
   (let [fsm-spec  @fsm-spec-ref
-        state {:value state
-               :context context
+        state {:value (:value state)
+               :context (:context state)
                :effect effect}]
     (assert-state fsm-spec state)
     (assert-effect fsm-spec effect)
@@ -488,16 +504,14 @@
   - opts - Required hashmap of named options
 
   Options:
-  - state - Initial state value keyword
-  - context - Optional default context if initial state includes context
+  - state - Hash map with :value and optional :context attrs
 
   Returns an instance of FSMAtom
   "
-  [spec {:keys [state context effect atom]
-         :or {atom atom
-              context {}}}]
+  [spec {:keys [state effect atom]
+         :or {atom atom}}]
   (AtomFSM. spec
-            (atom {:state (init spec state context effect)
+            (atom {:state (init spec (merge {:context {}} (:initial @spec) state) effect)
                    :cleanup-effect nil
                    :subscribers #{}})))
 
@@ -514,14 +528,16 @@
   Returns a mermaid chart string"
   [fsm-spec-ref & {:keys [direction]
                    :or {direction "TD"}}]
-  (let [spec @fsm-spec-ref]
+  (let [spec @fsm-spec-ref
+        initial (get-in spec [:initial :value])]
     (->> (:transitions spec)
          (mapcat
           (fn [[[state action] {:keys [allowed-states]}]]
             (for [dest allowed-states]
               (str "    " state "-->|" action "| " dest))))
          (s/join "\n")
-         (str "flowchart " direction "\n"))))
+         (str "flowchart " direction "\n    "
+              "init([start])-->" initial "\n"))))
 
 (comment
   (let [xs #{:a :b :c}]

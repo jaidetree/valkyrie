@@ -191,22 +191,35 @@
                        :effect nil}))
     fsm))
 
+(deftest initial-test
+  (testing "initial"
+    (testing "sets initial state on fsm spec"
+      (let [spec-atom (create-fsm-with-ctx)]
+        (fsm/initial spec-atom {:value :idle})
+        (let [spec @spec-atom]
+          (is (= (:initial spec) {:value :idle
+                                  :context {}})))))))
+
 (deftest init-test
   (testing "init"
-    (testing "initializes a valid state"
+    (testing "parses a valid initial state"
       (let [fsm (create-fsm-with-ctx)
-            state (fsm/init fsm :pending {:url "https://example.com"})]
+            state (fsm/init fsm {:value :pending
+                                 :context {:url "https://example.com"}})]
         (is (= (:value state) :pending))
         (is (= (get-in state [:context :url]) "https://example.com"))))
     (testing "throws error if invalid context"
       (let [fsm (create-fsm-with-ctx)]
-        (is (thrown? :default (fsm/init fsm :idle {:website "https://example.com"})))))
+        (is (thrown? :default (fsm/init fsm {:value :idle
+                                             :context {:website "https://example.com"}})))))
     (testing "throws error if invalid state"
       (let [fsm (create-fsm-with-ctx)]
-        (is (thrown? :default (fsm/init fsm :idle {:url "https://example.com"})))))
+        (is (thrown? :default (fsm/init fsm {:value :idle
+                                             :context {:url "https://example.com"}})))))
     (testing "provides useful error message"
       (let [fsm (create-fsm-with-ctx)
-            error (try (fsm/init fsm :pending {:url :url})
+            error (try (fsm/init fsm {:value :pending
+                                      :context {:url :url}})
                        (catch :default err
                          (.-message err)))]
         (is (= error
@@ -217,7 +230,7 @@
     (testing "Wraps an atom that implements deref"
       (let [fsm (fsm/atom-fsm
                  (create-fsm-with-ctx)
-                 {:state :idle})
+                 {:state {:value :idle}})
             state @fsm]
         (is (= (:value state) :idle))
         (is (= (:context state) {}))
@@ -228,7 +241,7 @@
     (testing "Returns full internal state"
       (let [fsm (fsm/atom-fsm
                  (create-fsm-with-ctx)
-                 {:state :idle})
+                 {:state {:value :idle}})
             state (fsm/internal-state fsm)]
         (is (= (-> state :state :value) :idle))
         (is (= (-> state :state :context) {}))
@@ -239,7 +252,7 @@
     (testing "defined transitions return a valid state"
       (let [fsm (fsm/atom-fsm
                  (create-fsm-with-ctx)
-                 {:state :idle})
+                 {:state {:value :idle}})
             _ (fsm/dispatch fsm {:type :fetch :url "https://example.com"})
             state @fsm]
         (is (= (:value state) :pending))
@@ -252,7 +265,7 @@
       (let [transaction (atom {})
             fsm (fsm/atom-fsm
                  (create-fsm-with-ctx)
-                 {:state :idle})]
+                 {:state {:value :idle}})]
         (fsm/subscribe
          fsm
          (fn [tx]
@@ -274,7 +287,7 @@
       (let [transaction (atom {})
             fsm (fsm/atom-fsm
                  (create-fsm-with-ctx)
-                 {:state :idle})
+                 {:state {:value :idle}})
             unsubscribe (fsm/subscribe
                          fsm
                          (fn [tx]
@@ -297,7 +310,7 @@
     (testing "removes subscriptions and unsets state, context, and effect"
       (let [fsm (fsm/atom-fsm
                  (create-fsm-with-ctx)
-                 {:state :idle})
+                 {:state {:value :idle}})
             transactions (atom [])]
         (fsm/subscribe fsm
                        (fn [tx]
@@ -345,8 +358,8 @@
     (testing "side-effects can run and dispatch multiple actions"
       (let [fsm (fsm/atom-fsm
                  (create-counter-fsm)
-                 {:state :active
-                  :context {:num 0}})
+                 {:state {:value :active
+                          :context {:num 0}}})
             promise (js/Promise.
                      (fn [resolve]
                        (fsm/subscribe fsm
@@ -368,6 +381,7 @@
       (fsm/state :red-light)
       (fsm/state :yellow-light)
       (fsm/state :green-light)
+      (fsm/initial {:value :green-light})
       (fsm/action :change-light)
 
       (fsm/transition
@@ -391,7 +405,7 @@
     (let [diagram (fsm/spec->diagram (traffic-fsm))]
       (js/console.log diagram)
       (is (= diagram
-             "flowchart TD\n    :red-light-->|:change-light| :green-light\n    :green-light-->|:change-light| :yellow-light\n    :yellow-light-->|:change-light| :red-light")))))
+             "flowchart TD\n    init([start])-->:green-light\n    :red-light-->|:change-light| :green-light\n    :green-light-->|:change-light| :yellow-light\n    :yellow-light-->|:change-light| :red-light")))))
 
 (comment
   #_(def test-fsm
