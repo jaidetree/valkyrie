@@ -31,7 +31,7 @@ sh ./scripts/version "$1"
 
 # If there are modified files, commit them
 if ! git diff --quiet HEAD --; then
-  git add deps.edn package.json package-lock.json pom.xml readme.md
+  git add deps.edn build.edn package.json package-lock.json pom.xml readme.md
   git commit -m "chore: Update version to $1"
 fi
 
