@@ -22,7 +22,7 @@ A ClojureScript Finite State Machine library compatible with many state manageme
 
 ## Why another FSM library?
 
-When it comes to frontend projects, a positive virtue of languages like ReScript or TypeScript is a strong sense of correctness and confidence in your data. Finite State Machines provide a stong sense of confidence in system behavior leading to a more satisfying and productive development experience.
+When it comes to frontend projects, a positive virtue of languages like ReScript or TypeScript is a strong sense of correctness and confidence in your data. Finite State Machines provide a strong sense of confidence in system behavior leading to a more satisfying and productive development experience.
 
 While there are other FSM libraries targeting ClojureScript, I felt there were a few key shortcomings I wanted to address:
 
