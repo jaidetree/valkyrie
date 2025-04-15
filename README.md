@@ -1,10 +1,10 @@
 # Valkyrie
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/jaidetree/valkyrie/main/resources/valkyrie-logo.png" alt="Valkyrie Logo" width="200"/>
+  <img src="./doc/valkyrie-logo.svg" alt="Valkyrie Logo" />
 </p>
 
-A ClojureScript Finite State Machine library compatible with many state management tools. Valkyrie provides a robust way to model application state transitions with validation, side effects, and a clean API.
+A ClojureScript Finite State Machine library compatible with many state management tools. Valkyrie provides a robust toolkit to model application state transitions with validation, side effects, and a clean API.
 
 ## Installation
 
@@ -20,6 +20,20 @@ A ClojureScript Finite State Machine library compatible with many state manageme
 [dev.jaide/valkyrie "2025.3.29"]
 ```
 
+## Why another FSM library?
+
+When it comes to frontend projects, a positive virtue of languages like ReScript or TypeScript is a strong sense of correctness and confidence in your data. Finite State Machines provide a stong sense of confidence in system behavior leading to a more satisfying and productive development experience.
+
+While there are other FSM libraries targeting ClojureScript, I felt there were a few key shortcomings I wanted to address:
+
+1. Most states and transitions are not validated, which can lead to extra time debugging what went wrong.
+2. Context data is important for building real applications and storing request data, selected ids, drag coordinates, etc...
+3. Effect support is important so that FSMs can do real work such as making requests, starting timers, and setting event listeners while still making it easy to reuse between states.
+
+## Validation
+
+Note that any API that handles validation is expecting a hash-map mapping keys to Valhalla-compatible validator functions. See the examples below for how to work with them, or check out https://github.com/jaidetree/valhalla for more info.
+
 ## Usage
 
 Valkyrie provides a simple yet powerful API for defining and using finite state machines in your ClojureScript applications.
@@ -29,9 +43,11 @@ Valkyrie provides a simple yet powerful API for defining and using finite state 
 First, create a specification for your state machine:
 
 ```clojure
-(require '[dev.jaide.valkyrie.core :as fsm])
+(require
+ '[dev.jaide.valkyrie.core :as fsm]
+ '[dev.jaide.valhalla.core :as v])
 
-(def machine-spec (fsm/create :my-machine))
+(def fsm-spec (fsm/create :my-machine))
 ```
 
 ### Defining States
@@ -39,11 +55,11 @@ First, create a specification for your state machine:
 Define the valid states for your machine:
 
 ```clojure
-(-> machine-spec
+(-> fsm-spec
     (fsm/state :idle)
-    (fsm/state :loading {:data any?})
-    (fsm/state :success {:data any?})
-    (fsm/state :error {:message string?}))
+    (fsm/state :pending {:url (v/string)})
+    (fsm/state :fulfilled {:data (v/hash-map (v/string) (v/string)})})
+    (fsm/state :rejected {:message (v/string)}))
 ```
 
 ### Defining Actions
@@ -51,10 +67,10 @@ Define the valid states for your machine:
 Define the actions that can trigger state transitions:
 
 ```clojure
-(-> machine-spec
-    (fsm/action :fetch {:url string?})
-    (fsm/action :receive {:data any?})
-    (fsm/action :fail {:message string?})
+(-> fsm-spec
+    (fsm/action :fetch {:url (v/string)})
+    (fsm/action :resolve {:data (v/hash-map (v/string) (v/string))})
+    (fsm/action :reject {:message (v/string)})
     (fsm/action :reset))
 ```
 
@@ -63,14 +79,15 @@ Define the actions that can trigger state transitions:
 Define side effects that occur during state transitions:
 
 ```clojure
-(fsm/effect machine-spec :fetch-data
+(fsm/effect fsm-spec :fetch-data
   {:url string?}
   (fn [{:keys [effect dispatch]}]
-    (js/fetch (:url effect)
-      (fn [response]
-        (dispatch {:type :receive :data response}))
-      (fn [error]
-        (dispatch {:type :fail :message (.-message error)})))
+    (-> (js/fetch (:url effect))
+        (.then (fn [response] (.json response)))
+        (.then (fn [body]
+                (dispatch {:type :resolve :data response})))
+        (.catch (fn [error]
+                 (dispatch {:type :reject :message (.-message error)})))
     ;; Return cleanup function (optional)
     (fn cleanup []
       (println "Cleaning up fetch effect"))))
@@ -81,41 +98,40 @@ Define side effects that occur during state transitions:
 Define how states transition in response to actions:
 
 ```clojure
-(-> machine-spec
+(-> fsm-spec
     (fsm/transition
       {:from [:idle]
        :actions [:fetch]
-       :to [:loading]}
+       :to [:pending]}
       (fn [state action]
         {:value :loading
          :context {:data nil}
          :effect {:id :fetch-data
                   :url (:url action)}}))
-    
+
     (fsm/transition
       {:from [:loading]
-       :actions [:receive]
-       :to [:success]}
+       :actions [:resolve]
+       :to [:fulfilled]}
       (fn [state action]
-        {:value :success
+        {:value :fulfilled
          :context {:data (:data action)}}))
-    
+
     (fsm/transition
       {:from [:loading]
-       :actions [:fail]
-       :to [:error]}
+       :actions [:reject]
+       :to [:rejected]}
       (fn [state action]
-        {:value :error
+        {:value :rejected
          :context {:message (:message action)}}))
-    
+
     (fsm/transition
-      {:from [:success :error]
-       :actions [:reset]
-       :to [:idle]}
+      {:from [:fulfilled :rejected]
+       :actions [:reset]} ;; :to is not required when defining keyword transitions
       :idle))
 
 ;; Set initial state
-(fsm/initial machine-spec :idle)
+(fsm/initial fsm-spec :idle)
 ```
 
 ### Creating an Atom Instance
@@ -123,7 +139,7 @@ Define how states transition in response to actions:
 Create a state machine instance:
 
 ```clojure
-(def machine (fsm/atom-fsm machine-spec {:state {:value :idle}}))
+(def fsm (fsm/atom-fsm fsm-spec))
 ```
 
 ### Dispatching Actions
@@ -131,7 +147,7 @@ Create a state machine instance:
 Trigger state transitions by dispatching actions:
 
 ```clojure
-(fsm/dispatch machine {:type :fetch :url "https://api.example.com/data"})
+(fsm/dispatch fsm {:type :fetch :url "https://api.example.com/data"})
 ```
 
 ### Reading State
@@ -140,16 +156,16 @@ Access the current state:
 
 ```clojure
 ;; Using deref
-@machine
+@fsm
 ;; => {:value :loading, :context {:data nil}, :effect {:id :fetch-data, :url "..."}}
 
 ;; Using get
-(get machine :value)
+(get fsm :value)
 ;; => :loading
 
 ;; Using get-in
-(get-in machine [:context :data])
-;; => nil
+(get-in fsm [:context :data])
+;; => #js { "some-key" "some-value" }
 ```
 
 ### Subscribing to State Changes
@@ -157,8 +173,8 @@ Access the current state:
 Listen for state transitions:
 
 ```clojure
-(def unsubscribe 
-  (fsm/subscribe machine 
+(def unsubscribe
+  (fsm/subscribe fsm
     (fn [transition]
       (println "Transitioned from" (get-in transition [:prev :value])
                "to" (get-in transition [:next :value])
@@ -173,7 +189,7 @@ Listen for state transitions:
 Properly dispose of the machine when done:
 
 ```clojure
-(fsm/destroy machine)
+(fsm/destroy fsm)
 ```
 
 ## Examples
@@ -187,21 +203,21 @@ Properly dispose of the machine when done:
     (fsm/state :red)
     (fsm/state :yellow)
     (fsm/state :green)
-    
+
     (fsm/action :next)
-    
+
     (fsm/transition
       {:from [:red] :actions [:next] :to [:green]}
       :green)
-    
+
     (fsm/transition
-      {:from [:green] :actions [:next] :to [:yellow]}
+      {:from [:green] :actions [:next]} ;; :to is not required when transition is a single keyword
       :yellow)
-    
+
     (fsm/transition
-      {:from [:yellow] :actions [:next] :to [:red]}
+      {:from [:yellow] :actions [:next]}
       :red)
-    
+
     (fsm/initial :red))
 
 (def light (fsm/atom-fsm traffic-light {:state {:value :red}}))
@@ -219,49 +235,52 @@ Properly dispose of the machine when done:
 
 (-> fetcher
     (fsm/state :idle)
-    (fsm/state :loading)
-    (fsm/state :success {:data any?})
-    (fsm/state :error {:message string?})
-    
-    (fsm/action :fetch {:url string?})
-    (fsm/action :receive {:data any?})
-    (fsm/action :fail {:message string?})
+    (fsm/state :pending {:url (v/string)})
+    (fsm/state :fulfilled {:data (v/assert (constantly true))})
+    (fsm/state :rejected {:message (v/string)})
+
+    (fsm/action :fetch {:url (v/string)})
+    (fsm/action :resolve {:data (v/assert (constantly true))})
+    (fsm/action :reject {:message (v/string)})
     (fsm/action :reset)
-    
+
     (fsm/effect :fetch-data
       {:url string?}
       (fn [{:keys [effect dispatch]}]
         (-> (js/fetch (:url effect))
             (.then #(.json %))
-            (.then #(dispatch {:type :receive :data %}))
-            (.catch #(dispatch {:type :fail :message (.-message %)})))
+            (.then #(dispatch {:type :resolve :data %}))
+            (.catch #(dispatch {:type :reject :message (.-message %)})))
         nil)) ;; No cleanup needed
-    
+
     (fsm/transition
-      {:from [:idle] :actions [:fetch] :to [:loading]}
+      {:from [:idle] :actions [:fetch] :to [:pending]}
       (fn [state action]
-        {:value :loading
+        {:value :pending
+         :context {:url (:url action)}
          :effect {:id :fetch-data :url (:url action)}}))
-    
+
     (fsm/transition
-      {:from [:loading] :actions [:receive] :to [:success]}
+      {:from [:pending] :actions [:resolve] :to [:fulfilled]}
       (fn [state action]
-        {:value :success
+        {:value :fulfilled
          :context {:data (:data action)}}))
-    
+
     (fsm/transition
-      {:from [:loading] :actions [:fail] :to [:error]}
+      {:from [:pending] :actions [:reject] :to [:error]}
       (fn [state action]
-        {:value :error
+        {:value :rejected
          :context {:message (:message action)}}))
-    
+
     (fsm/transition
-      {:from [:success :error] :actions [:reset] :to [:idle]}
+      {:from [:fulfilled :rejected] :actions [:reset]} ;; :to is not required when transition is a single keyword
       :idle)
-    
+
     (fsm/initial :idle))
 
-(def data-fetcher (fsm/atom-fsm fetcher {:state {:value :idle}}))
+(def data-fetcher (fsm/atom-fsm fetcher))
+;; An initial state may be provided on instantiation
+;; (def data-fetcher (fsm/atom-fsm fetcher {:state :idle}))
 
 ;; Usage
 (fsm/dispatch data-fetcher {:type :fetch :url "https://api.example.com/data"})
@@ -271,20 +290,15 @@ Properly dispose of the machine when done:
 
 Valkyrie is designed to be adaptable to different state management systems. You can implement your own adapters by following the `IStateMachine` protocol:
 
-### Init
-
-Use `fsm/init` to validate and initialize a state:
-
-```clojure
-(fsm/init spec-atom state-map effect-map)
-```
-
 ### Get
 
-Implement `ILookup` and `IDeref` to allow state access:
+Implement the `ILookup` and the `IDeref` protocols to allow state access:
 
 ```clojure
+IDeref
 (-deref [this] ...)
+
+ILookup
 (-lookup [this k] ...)
 (-lookup [this k not-found] ...)
 ```
@@ -313,18 +327,23 @@ Implement the `destroy` method for cleanup:
 (destroy [this] ...)
 ```
 
+Look at the atom-fsm example in core.cljs for how to implement an adapter.
+
 ## Visualizing State Machines
 
 Valkyrie provides a way to generate Mermaid diagrams from your state machines:
 
 ```clojure
-(println (fsm/spec->diagram machine-spec))
+(println (fsm/spec->diagram fsm-spec))
 ```
 
 This will output a Mermaid flowchart that you can paste into documentation or a Mermaid-compatible viewer.
 
+## Credits
+
+- Thanks to [@jmezzcappa](https://github.com/jmezzacappa) for coming up with a great TypeScript FSM implementation at Crunchy.
+- Thanks to the Doom Emacs discord server for letting me ramble on ideas in the #programming channel :sweat_smile:
+
 ## License
 
-Copyright © 2025 Jaide Tree
-
-Distributed under the Eclipse Public License version 1.0.
+Distributed under the GNU-GPL-3.0 license
