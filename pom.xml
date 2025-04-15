@@ -4,7 +4,7 @@
   <packaging>jar</packaging>
   <groupId>valkyrie</groupId>
   <artifactId>valkyrie</artifactId>
-  <version>2025.3.29</version>
+  <version>2025.4.15</version>
   <name>valkyrie</name>
   <dependencies>
     <dependency>

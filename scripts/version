@@ -18,7 +18,7 @@ DATE_PATTERN="[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}"
 REPLACE_DATE="s/$DATE_PATTERN/$1/g"
 
 # Use sed to replace all date patterns with the provided date
-sed -i -E $REPLACE_DATE deps.edn
+sed -i -E $REPLACE_DATE build.edn
 sed -i -E $REPLACE_DATE package.json
 sed -i -E $REPLACE_DATE package-lock.json
 sed -i -E $REPLACE_DATE pom.xml

@@ -11,13 +11,13 @@ A ClojureScript Finite State Machine library compatible with many state manageme
 ### deps.edn / Babashka
 
 ```clojure
-{:deps {dev.jaide/valkyrie {:mvn/version "2025.3.29"}}}
+{:deps {dev.jaide/valkyrie {:mvn/version "2025.4.15"}}}
 ```
 
 ### Leiningen / Boot
 
 ```clojure
-[dev.jaide/valkyrie "2025.3.29"]
+[dev.jaide/valkyrie "2025.4.15"]
 ```
 
 ## Why another FSM library?
