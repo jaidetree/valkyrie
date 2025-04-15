@@ -381,23 +381,20 @@
       (fsm/state :red-light)
       (fsm/state :yellow-light)
       (fsm/state :green-light)
-      (fsm/initial {:value :green-light})
+      (fsm/initial :green-light)
       (fsm/action :change-light)
 
       (fsm/transition
        {:from [:red-light]
-        :actions [:change-light]
-        :to [:green-light]}
+        :actions [:change-light]}
        :green-light)
       (fsm/transition
        {:from [:green-light]
-        :actions [:change-light]
-        :to [:yellow-light]}
+        :actions [:change-light]}
        :yellow-light)
       (fsm/transition
        {:from [:yellow-light]
-        :actions [:change-light]
-        :to [:red-light]}
+        :actions [:change-light]}
        :red-light)))
 
 (deftest spec->diagram-test

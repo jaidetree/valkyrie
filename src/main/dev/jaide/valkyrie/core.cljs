@@ -180,7 +180,9 @@
                                (pr-str (first state-action-vec))
                                " and action " (pr-str (second state-action-vec))))))
       (swap! fsm-spec-ref assoc-in [:transitions state-action-vec]
-             {:allowed-states (set to)
+             {:allowed-states (if (fn? f-or-kw)
+                                (set to)
+                                #{f-or-kw})
               :handler (if (fn? f-or-kw)
                          f-or-kw
                          (fn []
@@ -237,11 +239,12 @@
   
   Arguments:
   - fsm-spec-ref - An fsm-spec atom from the `create` function
-  - state - A state hashmap with :value and :context attrs
+  - state - A state hashmap with :value and :context attrs or value keyword
   
   Returns the fsm-spec-ref atom for chaining"
   [fsm-spec-ref state]
   (let [fsm-spec @fsm-spec-ref
+        state (if (keyword? state) {:value state} state)
         state (merge {:context {}} state)
         state (assert-state fsm-spec state)]
     (swap! fsm-spec-ref assoc :initial state)
