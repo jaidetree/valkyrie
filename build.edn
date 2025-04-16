@@ -1,2 +1,5 @@
 {:lib dev.jaide/valkyrie
- :version "2025.4.15"}
+ :version "2025.4.15-SNAPSHOT"
+ :source-dirs ["src/main"]
+ :licenses [{:name "GPL-3.0"
+             :url "https://www.gnu.org/licenses/agpl-3.0.txt"}]}
