@@ -81,14 +81,14 @@
 - [ ] Design logo
 - [x] Update readme.md
 - [x] Copy versioning script from valhalla
-- [ ] Generate pom file
-- [ ] Update version
+- [x] Generate pom file
+- [x] Update version
 
 ## 8. Publish
 
-- [ ] Add https://github.com/liquidz/build.edn
+- [x] Add https://github.com/liquidz/build.edn
 - [x] Configure CI
-- [ ] Set env vars
-- [ ] Draft a release
+- [x] Set env vars
+- [x] Draft a release
 - [ ] Deploy to clojars
 - [ ] Announce in Slack
